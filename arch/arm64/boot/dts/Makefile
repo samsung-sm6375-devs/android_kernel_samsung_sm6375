@@ -28,3 +28,10 @@ subdir-y += synaptics
 subdir-y += ti
 subdir-y += xilinx
 subdir-y += zte
+
+# FIXME: blocked by Samsung to prevent sporadic build failure
+#dtstree	:= $(srctree)/$(src)
+#vendor  := $(dtstree)/vendor
+#ifneq "$(wildcard $(vendor)/Makefile)" ""
+#    subdir-y += vendor
+#endif

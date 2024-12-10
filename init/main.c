@@ -28,7 +28,6 @@
 #include <linux/initrd.h>
 #include <linux/memblock.h>
 #include <linux/acpi.h>
-#include <linux/bootconfig.h>
 #include <linux/console.h>
 #include <linux/nmi.h>
 #include <linux/percpu.h>
@@ -40,7 +39,6 @@
 #include <linux/security.h>
 #include <linux/smp.h>
 #include <linux/profile.h>
-#include <linux/kfence.h>
 #include <linux/rcupdate.h>
 #include <linux/moduleparam.h>
 #include <linux/kallsyms.h>
@@ -95,14 +93,32 @@
 #include <linux/cache.h>
 #include <linux/rodata_test.h>
 #include <linux/jump_label.h>
+#include <linux/memblock.h>
 
 #include <asm/io.h>
 #include <asm/setup.h>
 #include <asm/sections.h>
 #include <asm/cacheflush.h>
 
+#ifdef CONFIG_RKP
+#include <linux/rkp.h>
+#endif
+#ifdef CONFIG_KDP
+#include <linux/kdp.h>
+#endif
 #define CREATE_TRACE_POINTS
 #include <trace/events/initcall.h>
+
+#ifdef CONFIG_QGKI_MSM_BOOT_TIME_MARKER
+#include <soc/qcom/boot_stats.h>
+#endif
+
+#ifdef CONFIG_SECURITY_DEFEX
+#include <linux/defex.h>
+void __init __weak defex_load_rules(void) { }
+#endif
+
+#include <linux/samsung/debug/sec_kboot_stat.h>
 
 static int kernel_init(void *);
 
@@ -137,19 +153,8 @@ char __initdata boot_command_line[COMMAND_LINE_SIZE];
 char *saved_command_line;
 /* Command line for parameter parsing */
 static char *static_command_line;
-/* Untouched extra command line */
-static char *extra_command_line;
-/* Extra init arguments */
-static char *extra_init_args;
-
-#ifdef CONFIG_BOOT_CONFIG
-/* Is bootconfig on command line? */
-static bool bootconfig_found;
-static bool initargs_found;
-#else
-# define bootconfig_found false
-# define initargs_found false
-#endif
+/* Command line for per-initcall parameter parsing */
+static char *initcall_command_line;
 
 static char *execute_command;
 static char *ramdisk_execute_command;
@@ -207,8 +212,15 @@ static bool __init obsolete_checksetup(char *line)
 				pr_warn("Parameter %s is obsolete, ignored\n",
 					p->str);
 				return true;
-			} else if (p->setup_func(line + n))
-				return true;
+			} else {
+				int ret;
+
+				memblock_memsize_set_name(p->str);
+				ret = p->setup_func(line + n);
+				memblock_memsize_unset_name();
+				if (ret)
+					return true;
+			}
 		}
 		p++;
 	} while (p < __setup_end);
@@ -256,221 +268,6 @@ static int __init loglevel(char *str)
 }
 
 early_param("loglevel", loglevel);
-
-#ifdef CONFIG_BLK_DEV_INITRD
-static void * __init get_boot_config_from_initrd(u32 *_size, u32 *_csum)
-{
-	u32 size, csum;
-	char *data;
-	u32 *hdr;
-	int i;
-
-	if (!initrd_end)
-		return NULL;
-
-	data = (char *)initrd_end - BOOTCONFIG_MAGIC_LEN;
-	/*
-	 * Since Grub may align the size of initrd to 4, we must
-	 * check the preceding 3 bytes as well.
-	 */
-	for (i = 0; i < 4; i++) {
-		if (!memcmp(data, BOOTCONFIG_MAGIC, BOOTCONFIG_MAGIC_LEN))
-			goto found;
-		data--;
-	}
-	return NULL;
-
-found:
-	hdr = (u32 *)(data - 8);
-	size = hdr[0];
-	csum = hdr[1];
-
-	data = ((void *)hdr) - size;
-	if ((unsigned long)data < initrd_start) {
-		pr_err("bootconfig size %d is greater than initrd size %ld\n",
-			size, initrd_end - initrd_start);
-		return NULL;
-	}
-
-	/* Remove bootconfig from initramfs/initrd */
-	initrd_end = (unsigned long)data;
-	if (_size)
-		*_size = size;
-	if (_csum)
-		*_csum = csum;
-
-	return data;
-}
-#else
-static void * __init get_boot_config_from_initrd(u32 *_size, u32 *_csum)
-{
-	return NULL;
-}
-#endif
-
-#ifdef CONFIG_BOOT_CONFIG
-
-char xbc_namebuf[XBC_KEYLEN_MAX] __initdata;
-
-#define rest(dst, end) ((end) > (dst) ? (end) - (dst) : 0)
-
-static int __init xbc_snprint_cmdline(char *buf, size_t size,
-				      struct xbc_node *root)
-{
-	struct xbc_node *knode, *vnode;
-	char *end = buf + size;
-	const char *val;
-	int ret;
-
-	xbc_node_for_each_key_value(root, knode, val) {
-		ret = xbc_node_compose_key_after(root, knode,
-					xbc_namebuf, XBC_KEYLEN_MAX);
-		if (ret < 0)
-			return ret;
-
-		vnode = xbc_node_get_child(knode);
-		if (!vnode) {
-			ret = snprintf(buf, rest(buf, end), "%s ", xbc_namebuf);
-			if (ret < 0)
-				return ret;
-			buf += ret;
-			continue;
-		}
-		xbc_array_for_each_value(vnode, val) {
-			ret = snprintf(buf, rest(buf, end), "%s=\"%s\" ",
-				       xbc_namebuf, val);
-			if (ret < 0)
-				return ret;
-			buf += ret;
-		}
-	}
-
-	return buf - (end - size);
-}
-#undef rest
-
-/* Make an extra command line under given key word */
-static char * __init xbc_make_cmdline(const char *key)
-{
-	struct xbc_node *root;
-	char *new_cmdline;
-	int ret, len = 0;
-
-	root = xbc_find_node(key);
-	if (!root)
-		return NULL;
-
-	/* Count required buffer size */
-	len = xbc_snprint_cmdline(NULL, 0, root);
-	if (len <= 0)
-		return NULL;
-
-	new_cmdline = memblock_alloc(len + 1, SMP_CACHE_BYTES);
-	if (!new_cmdline) {
-		pr_err("Failed to allocate memory for extra kernel cmdline.\n");
-		return NULL;
-	}
-
-	ret = xbc_snprint_cmdline(new_cmdline, len + 1, root);
-	if (ret < 0 || ret > len) {
-		pr_err("Failed to print extra kernel cmdline.\n");
-		memblock_free_ptr(new_cmdline, len + 1);
-		return NULL;
-	}
-
-	return new_cmdline;
-}
-
-static int __init bootconfig_params(char *param, char *val,
-				    const char *unused, void *arg)
-{
-	if (strcmp(param, "bootconfig") == 0) {
-		bootconfig_found = true;
-	}
-	return 0;
-}
-
-static void __init setup_boot_config(const char *cmdline)
-{
-	static char tmp_cmdline[COMMAND_LINE_SIZE] __initdata;
-	const char *msg;
-	int pos;
-	u32 size, csum;
-	char *data, *copy, *err;
-	int ret;
-
-	/* Cut out the bootconfig data even if we have no bootconfig option */
-	data = get_boot_config_from_initrd(&size, &csum);
-
-	strlcpy(tmp_cmdline, boot_command_line, COMMAND_LINE_SIZE);
-	err = parse_args("bootconfig", tmp_cmdline, NULL, 0, 0, 0, NULL,
-			 bootconfig_params);
-
-	if (IS_ERR(err) || !bootconfig_found)
-		return;
-
-	/* parse_args() stops at '--' and returns an address */
-	if (err)
-		initargs_found = true;
-
-	if (!data) {
-		pr_err("'bootconfig' found on command line, but no bootconfig found\n");
-		return;
-	}
-
-	if (size >= XBC_DATA_MAX) {
-		pr_err("bootconfig size %d greater than max size %d\n",
-			size, XBC_DATA_MAX);
-		return;
-	}
-
-	if (xbc_calc_checksum(data, size) != csum) {
-		pr_err("bootconfig checksum failed\n");
-		return;
-	}
-
-	copy = memblock_alloc(size + 1, SMP_CACHE_BYTES);
-	if (!copy) {
-		pr_err("Failed to allocate memory for bootconfig\n");
-		return;
-	}
-
-	memcpy(copy, data, size);
-	copy[size] = '\0';
-
-	ret = xbc_init(copy, &msg, &pos);
-	if (ret < 0) {
-		if (pos < 0)
-			pr_err("Failed to init bootconfig: %s.\n", msg);
-		else
-			pr_err("Failed to parse bootconfig: %s at %d.\n",
-				msg, pos);
-	} else {
-		pr_info("Load bootconfig: %d bytes %d nodes\n", size, ret);
-		/* keys starting with "kernel." are passed via cmdline */
-		extra_command_line = xbc_make_cmdline("kernel");
-		/* Also, "init." keys are init arguments */
-		extra_init_args = xbc_make_cmdline("init");
-	}
-	return;
-}
-
-#else
-
-static void __init setup_boot_config(const char *cmdline)
-{
-	/* Remove bootconfig data from initrd */
-	get_boot_config_from_initrd(NULL, NULL);
-}
-
-static int __init warn_bootconfig(char *str)
-{
-	pr_warn("WARNING: 'bootconfig' found on the kernel command line but CONFIG_BOOTCONFIG is not set.\n");
-	return 0;
-}
-early_param("bootconfig", warn_bootconfig);
-
-#endif
 
 /* Change NUL term back to "=", to make "param" the whole string. */
 static int __init repair_env_string(char *param, char *val,
@@ -601,51 +398,22 @@ static inline void smp_prepare_cpus(unsigned int maxcpus) { }
  */
 static void __init setup_command_line(char *command_line)
 {
-	size_t len, xlen = 0, ilen = 0;
+	size_t len = strlen(boot_command_line) + 1;
 
-	if (extra_command_line)
-		xlen = strlen(extra_command_line);
-	if (extra_init_args)
-		ilen = strlen(extra_init_args) + 4; /* for " -- " */
-
-	len = xlen + strlen(boot_command_line) + 1;
-
-	saved_command_line = memblock_alloc(len + ilen, SMP_CACHE_BYTES);
+	saved_command_line = memblock_alloc(len, SMP_CACHE_BYTES);
 	if (!saved_command_line)
-		panic("%s: Failed to allocate %zu bytes\n", __func__, len + ilen);
+		panic("%s: Failed to allocate %zu bytes\n", __func__, len);
+
+	initcall_command_line =	memblock_alloc(len, SMP_CACHE_BYTES);
+	if (!initcall_command_line)
+		panic("%s: Failed to allocate %zu bytes\n", __func__, len);
 
 	static_command_line = memblock_alloc(len, SMP_CACHE_BYTES);
 	if (!static_command_line)
 		panic("%s: Failed to allocate %zu bytes\n", __func__, len);
 
-	if (xlen) {
-		/*
-		 * We have to put extra_command_line before boot command
-		 * lines because there could be dashes (separator of init
-		 * command line) in the command lines.
-		 */
-		strcpy(saved_command_line, extra_command_line);
-		strcpy(static_command_line, extra_command_line);
-	}
-	strcpy(saved_command_line + xlen, boot_command_line);
-	strcpy(static_command_line + xlen, command_line);
-
-	if (ilen) {
-		/*
-		 * Append supplemental init boot args to saved_command_line
-		 * so that user can check what command line options passed
-		 * to init.
-		 */
-		len = strlen(saved_command_line);
-		if (initargs_found) {
-			saved_command_line[len++] = ' ';
-		} else {
-			strcpy(saved_command_line + len, " -- ");
-			len += 4;
-		}
-
-		strcpy(saved_command_line + len, extra_init_args);
-	}
+	strcpy(saved_command_line, boot_command_line);
+	strcpy(static_command_line, command_line);
 }
 
 /*
@@ -718,8 +486,10 @@ static int __init do_early_param(char *param, char *val,
 		    (strcmp(param, "console") == 0 &&
 		     strcmp(p->str, "earlycon") == 0)
 		) {
+			memblock_memsize_set_name(p->str);
 			if (p->setup_func(val) != 0)
 				pr_warn("Malformed early option '%s'\n", param);
+			memblock_memsize_unset_name();
 		}
 	}
 	/* We accept everything at this stage. */
@@ -810,9 +580,10 @@ static void __init mm_init(void)
 	 */
 	page_ext_init_flatmem();
 	init_debug_pagealloc();
-	kfence_alloc_pool();
 	report_meminit();
 	mem_init();
+	/* page_owner must be initialized after buddy is ready */
+	page_ext_init_flatmem_late();
 	kmem_cache_init();
 	kmemleak_init();
 	pgtable_init();
@@ -854,7 +625,6 @@ asmlinkage __visible void __init start_kernel(void)
 	pr_notice("%s", linux_banner);
 	early_security_init();
 	setup_arch(&command_line);
-	setup_boot_config(command_line);
 	setup_command_line(command_line);
 	setup_nr_cpu_ids();
 	setup_per_cpu_areas();
@@ -864,7 +634,7 @@ asmlinkage __visible void __init start_kernel(void)
 	build_all_zonelists(NULL);
 	page_alloc_init();
 
-	pr_notice("Kernel command line: %s\n", saved_command_line);
+	pr_notice("Kernel command line: %s\n", boot_command_line);
 	/* parameters may set static keys */
 	jump_label_init();
 	parse_early_param();
@@ -875,9 +645,6 @@ asmlinkage __visible void __init start_kernel(void)
 	if (!IS_ERR_OR_NULL(after_dashes))
 		parse_args("Setting init args", after_dashes, NULL, 0, -1, -1,
 			   NULL, set_init_arg);
-	if (extra_init_args)
-		parse_args("Setting extra init args", extra_init_args,
-			   NULL, 0, -1, -1, NULL, set_init_arg);
 
 	/*
 	 * These use large bootmem allocations and must precede
@@ -888,12 +655,19 @@ asmlinkage __visible void __init start_kernel(void)
 	sort_main_extable();
 	trap_init();
 	mm_init();
+#ifdef CONFIG_RKP
+	rkp_init();
+#endif
 	poking_init();
 	ftrace_init();
 
 	/* trace_printk can be enabled here */
 	early_trace_init();
 
+#ifdef CONFIG_KDP
+	// move to after, early_trace_init. cuz security_integrity_current failed
+	kdp_enable = true;
+#endif
 	/*
 	 * Set up the scheduler prior starting any interrupts (such as the
 	 * timer interrupt). Full topology setup happens at smp_init()
@@ -941,7 +715,6 @@ asmlinkage __visible void __init start_kernel(void)
 	hrtimers_init();
 	softirq_init();
 	timekeeping_init();
-	kfence_init();
 	time_init();
 
 	/*
@@ -1009,6 +782,10 @@ asmlinkage __visible void __init start_kernel(void)
 		efi_enter_virtual_mode();
 #endif
 	thread_stack_cache_init();
+#ifdef CONFIG_KDP
+	if (kdp_enable)
+		kdp_init();
+#endif
 	cred_init();
 	fork_init();
 	proc_caches_init();
@@ -1189,7 +966,7 @@ int __init_or_module do_one_initcall(initcall_t fn)
 		return -EPERM;
 
 	do_trace_initcall_start(fn);
-	ret = fn();
+	ret = sec_initcall_debug(fn);
 	do_trace_initcall_finish(fn, ret);
 
 	msgbuf[0] = 0;
@@ -1244,12 +1021,13 @@ static const char *initcall_level_names[] __initdata = {
 	"late",
 };
 
-static void __init do_initcall_level(int level, char *command_line)
+static void __init do_initcall_level(int level)
 {
 	initcall_entry_t *fn;
 
+	strcpy(initcall_command_line, saved_command_line);
 	parse_args(initcall_level_names[level],
-		   command_line, __start___param,
+		   initcall_command_line, __start___param,
 		   __stop___param - __start___param,
 		   level, level,
 		   NULL, &repair_env_string);
@@ -1262,20 +1040,9 @@ static void __init do_initcall_level(int level, char *command_line)
 static void __init do_initcalls(void)
 {
 	int level;
-	size_t len = strlen(saved_command_line) + 1;
-	char *command_line;
 
-	command_line = kzalloc(len, GFP_KERNEL);
-	if (!command_line)
-		panic("%s: Failed to allocate %zu bytes\n", __func__, len);
-
-	for (level = 0; level < ARRAY_SIZE(initcall_levels) - 1; level++) {
-		/* Parser modifies command_line, restore it each time */
-		strcpy(command_line, saved_command_line);
-		do_initcall_level(level, command_line);
-	}
-
-	kfree(command_line);
+	for (level = 0; level < ARRAY_SIZE(initcall_levels) - 1; level++)
+		do_initcall_level(level);
 }
 
 /*
@@ -1391,10 +1158,18 @@ static int __ref kernel_init(void *unused)
 
 	rcu_end_inkernel_boot();
 
+#ifdef CONFIG_QGKI_MSM_BOOT_TIME_MARKER
+	place_marker("M - DRIVER Kernel Boot Done");
+#endif
+
 	if (ramdisk_execute_command) {
 		ret = run_init_process(ramdisk_execute_command);
-		if (!ret)
+		if (!ret) {
+#ifdef CONFIG_RKP
+			rkp_deferred_init();
+#endif
 			return 0;
+		}
 		pr_err("Failed to execute %s (error %d)\n",
 		       ramdisk_execute_command, ret);
 	}
@@ -1487,4 +1262,7 @@ static noinline void __init kernel_init_freeable(void)
 	 */
 
 	integrity_load_keys();
+#ifdef CONFIG_SECURITY_DEFEX
+	defex_load_rules();
+#endif
 }

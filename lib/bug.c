@@ -48,6 +48,8 @@
 #include <linux/sched.h>
 #include <linux/rculist.h>
 
+#include <trace/hooks/bug.h>
+
 extern struct bug_entry __start___bug_table[], __stop___bug_table[];
 
 static inline unsigned long bug_addr(const struct bug_entry *bug)
@@ -199,6 +201,8 @@ enum bug_trap_type report_bug(unsigned long bugaddr, struct pt_regs *regs)
 	else
 		pr_crit("Kernel BUG at %pB [verbose debug info unavailable]\n",
 			(void *)bugaddr);
+
+	trace_android_rvh_report_bug(file, line, bugaddr);
 
 	return BUG_TRAP_TYPE_BUG;
 }

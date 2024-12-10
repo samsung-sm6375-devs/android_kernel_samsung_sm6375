@@ -1071,6 +1071,9 @@ static int query_regdb_file(const char *alpha2)
 	if (!alpha2)
 		return -ENOMEM;
 
+#ifdef CONFIG_BATTERY_SAMSUNG
+	return -ENOMEM;
+#endif
 	err = request_firmware_nowait(THIS_MODULE, true, "regulatory.db",
 				      &reg_pdev->dev, GFP_KERNEL,
 				      (void *)alpha2, regdb_fw_cb);
@@ -2968,6 +2971,7 @@ int regulatory_hint_user(const char *alpha2,
 
 	return 0;
 }
+EXPORT_SYMBOL(regulatory_hint_user);
 
 int regulatory_hint_indoor(bool is_indoor, u32 portid)
 {

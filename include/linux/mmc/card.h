@@ -9,7 +9,6 @@
 
 #include <linux/device.h>
 #include <linux/mod_devicetable.h>
-#include <linux/android_kabi.h>
 
 struct mmc_cid {
 	unsigned int		manfid;
@@ -49,7 +48,6 @@ struct mmc_ext_csd {
 	u8			sec_feature_support;
 	u8			rel_sectors;
 	u8			rel_param;
-	bool			enhanced_rpmb_supported;
 	u8			part_config;
 	u8			cache_ctrl;
 	u8			rst_n_function;
@@ -87,6 +85,10 @@ struct mmc_ext_csd {
 	unsigned int            data_tag_unit_size;     /* DATA TAG UNIT size */
 	unsigned int		boot_ro_lock;		/* ro lock support */
 	bool			boot_ro_lockable;
+#if defined(CONFIG_SDC_QTI)
+	u8			raw_ext_csd_cmdq;	/* 15 */
+	u8			raw_ext_csd_cache_ctrl;	/* 33 */
+#endif
 	bool			ffu_capable;	/* Firmware upgrade support */
 	bool			cmdq_en;	/* Command Queue enabled */
 	bool			cmdq_support;	/* Command Queue supported */
@@ -97,7 +99,13 @@ struct mmc_ext_csd {
 	u8			raw_partition_support;	/* 160 */
 	u8			raw_rpmb_size_mult;	/* 168 */
 	u8			raw_erased_mem_count;	/* 181 */
+#if defined(CONFIG_SDC_QTI)
+	u8			raw_ext_csd_bus_width;	/* 183 */
+#endif
 	u8			strobe_support;		/* 184 */
+#if defined(CONFIG_SDC_QTI)
+	u8			raw_ext_csd_hs_timing;	/* 185 */
+#endif
 	u8			raw_ext_csd_structure;	/* 194 */
 	u8			raw_card_type;		/* 196 */
 	u8			raw_driver_strength;	/* 197 */
@@ -228,7 +236,7 @@ struct mmc_queue_req;
  * MMC Physical partitions
  */
 struct mmc_part {
-	u64		size;	/* partition size (in bytes) */
+	unsigned int	size;	/* partition size (in bytes) */
 	unsigned int	part_cfg;	/* partition type */
 	char	name[MAX_MMC_PART_NAME_LEN];
 	bool	force_ro;	/* to make boot parts RO by default */
@@ -237,9 +245,53 @@ struct mmc_part {
 #define MMC_BLK_DATA_AREA_BOOT	(1<<1)
 #define MMC_BLK_DATA_AREA_GP	(1<<2)
 #define MMC_BLK_DATA_AREA_RPMB	(1<<3)
-
-	ANDROID_KABI_RESERVE(1);
 };
+
+#if IS_ENABLED(CONFIG_SEC_STORAGE_MMC)
+#define MAX_REQ_TYPE_INDEX  5		// sbc, cmd, data, stop, busy
+#define MAX_ERR_TYPE_INDEX  2		// timeout, crc
+#define MAX_ERR_LOG_INDEX   (MAX_REQ_TYPE_INDEX * MAX_ERR_TYPE_INDEX)
+
+#define MAX_CNT_U64     0xFFFFFFFFFF
+#define MAX_CNT_U32     0x7FFFFFFF
+#define STATUS_MASK     (R1_ERROR | R1_CC_ERROR | R1_CARD_ECC_FAILED | \
+		R1_WP_VIOLATION | R1_OUT_OF_RANGE)
+
+struct mmc_card_error_log {
+	char	type[MAX_REQ_TYPE_INDEX];
+	int	err_type;
+	u32	status;
+	u64	first_issue_time;
+	u64	last_issue_time;
+	u32	count;
+};
+
+struct mmc_card_status_err_log {
+	u32	ge_cnt;		// status[19] : general error or unknown error
+	u32	cc_cnt;		// status[20] : internal card controller error
+	u32	ecc_cnt;	// status[21] : ecc error
+	u32	wp_cnt;		// status[26] : write protection error
+	u32	oor_cnt;	// status[31] : out of range error
+	u32     halt_cnt;       // cq halt / unhalt fail
+	u32     cq_cnt;         // cq enable / disable fail
+	u32     rpmb_cnt;       // RPMB switch fail
+	u32	noti_cnt;	// uevent notification count
+};
+
+static inline void mmc_check_error_count(struct mmc_card_error_log *err_log,
+		unsigned long long *total_c_cnt, unsigned long long *total_t_cnt)
+{
+	int i = 0;
+
+	//Only sbc(0,1)/cmd(2,3)/data(4,5) is checked.
+	for (i = 0; i < 6; i++) {
+		if (err_log[i].err_type == -EILSEQ && *total_c_cnt < MAX_CNT_U64)
+			*total_c_cnt += err_log[i].count;
+		if (err_log[i].err_type == -ETIMEDOUT && *total_t_cnt < MAX_CNT_U64)
+			*total_t_cnt += err_log[i].count;
+	}
+}
+#endif
 
 /*
  * MMC device
@@ -248,6 +300,14 @@ struct mmc_card {
 	struct mmc_host		*host;		/* the host this device belongs to */
 	struct device		dev;		/* the device */
 	u32			ocr;		/* the current OCR setting */
+#if defined(CONFIG_SDC_QTI)
+	unsigned long		clk_scaling_lowest;	/* lowest scaleable
+							 * frequency
+							 */
+	unsigned long		clk_scaling_highest;	/* highest scaleable
+							 * frequency
+							 */
+#endif
 	unsigned int		rca;		/* relative card address of device */
 	unsigned int		type;		/* card type */
 #define MMC_TYPE_MMC		0		/* MMC card */
@@ -311,12 +371,19 @@ struct mmc_card {
 	struct dentry		*debugfs_root;
 	struct mmc_part	part[MMC_NUM_PHY_PARTITION]; /* physical partitions */
 	unsigned int    nr_parts;
-
+#if defined(CONFIG_SDC_QTI)
+	unsigned int            part_curr;
+#endif
 	unsigned int		bouncesz;	/* Bounce buffer size */
 	struct workqueue_struct *complete_wq;	/* Private workqueue */
 
-	ANDROID_KABI_RESERVE(1);
-	ANDROID_KABI_RESERVE(2);
+#if IS_ENABLED(CONFIG_SEC_STORAGE_MMC)
+	struct device_attribute error_count;
+	struct mmc_card_error_log err_log[MAX_ERR_LOG_INDEX];
+	struct mmc_card_error_log err_log_backup[MAX_ERR_LOG_INDEX];
+	struct mmc_card_status_err_log status_err_log;
+	struct mmc_card_status_err_log status_err_log_backup;
+#endif
 };
 
 static inline bool mmc_large_sector(struct mmc_card *card)

@@ -11,7 +11,10 @@
 #include <linux/mutex.h>
 #include <linux/property.h>
 #include <linux/slab.h>
-#include <linux/android_kabi.h>
+
+#if defined(CONFIG_USB_NOTIFY_LAYER)
+#include <linux/usb_notify.h>
+#endif
 
 #include "bus.h"
 
@@ -19,7 +22,6 @@ struct typec_plug {
 	struct device			dev;
 	enum typec_plug_index		index;
 	struct ida			mode_ids;
-	ANDROID_KABI_RESERVE(1);
 };
 
 struct typec_cable {
@@ -27,7 +29,6 @@ struct typec_cable {
 	enum typec_plug_type		type;
 	struct usb_pd_identity		*identity;
 	unsigned int			active:1;
-	ANDROID_KABI_RESERVE(1);
 };
 
 struct typec_partner {
@@ -36,7 +37,6 @@ struct typec_partner {
 	struct usb_pd_identity		*identity;
 	enum typec_accessory		accessory;
 	struct ida			mode_ids;
-	ANDROID_KABI_RESERVE(1);
 };
 
 struct typec_port {
@@ -58,7 +58,6 @@ struct typec_port {
 
 	const struct typec_capability	*cap;
 	const struct typec_operations   *ops;
-	ANDROID_KABI_RESERVE(1);
 };
 
 #define to_typec_port(_dev_) container_of(_dev_, struct typec_port, dev)
@@ -697,8 +696,17 @@ EXPORT_SYMBOL_GPL(typec_register_partner);
  */
 void typec_unregister_partner(struct typec_partner *partner)
 {
-	if (!IS_ERR_OR_NULL(partner))
+#if defined(CONFIG_USB_NOTIFY_LAYER)
+	struct otg_notify *o_notify = get_otg_notify();
+#endif
+	if (!IS_ERR_OR_NULL(partner)) {
+		pr_info("%s\n", __func__);
 		device_unregister(&partner->dev);
+#if defined(CONFIG_USB_NOTIFY_LAYER)
+		if (o_notify)
+			send_otg_notify(o_notify, NOTIFY_EVENT_PD_CONTRACT, 0);
+#endif
+	}
 }
 EXPORT_SYMBOL_GPL(typec_unregister_partner);
 
@@ -1375,13 +1383,23 @@ void typec_set_pwr_opmode(struct typec_port *port,
 			  enum typec_pwr_opmode opmode)
 {
 	struct device *partner_dev;
+#if defined(CONFIG_USB_NOTIFY_LAYER)
+	struct otg_notify *o_notify = get_otg_notify();
 
-	if (port->pwr_opmode == opmode)
+	if (o_notify) {
+		if (opmode == TYPEC_PWR_MODE_PD)
+			send_otg_notify(o_notify, NOTIFY_EVENT_PD_CONTRACT, 1);
+		else
+			send_otg_notify(o_notify, NOTIFY_EVENT_PD_CONTRACT, 0);
+	}
+#endif
+
+	if ((port->pwr_opmode == opmode) || (opmode < TYPEC_PWR_MODE_USB) ||
+						(opmode > TYPEC_PWR_MODE_PD))
 		return;
 
 	port->pwr_opmode = opmode;
 	sysfs_notify(&port->dev.kobj, NULL, "power_operation_mode");
-	kobject_uevent(&port->dev.kobj, KOBJ_CHANGE);
 
 	partner_dev = device_find_child(&port->dev, NULL, partner_match);
 	if (partner_dev) {
@@ -1395,6 +1413,7 @@ void typec_set_pwr_opmode(struct typec_port *port,
 		}
 		put_device(partner_dev);
 	}
+	kobject_uevent(&port->dev.kobj, KOBJ_CHANGE);
 }
 EXPORT_SYMBOL_GPL(typec_set_pwr_opmode);
 

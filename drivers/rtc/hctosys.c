@@ -43,6 +43,12 @@ int rtc_hctosys(void)
 		goto err_read;
 	}
 
+	/*
+	 * Force update rtc year time to 2022
+	 * (The release year of device)
+	 */
+	tm.tm_year = 122;
+
 	tv64.tv_sec = rtc_tm_to_time64(&tm);
 
 #if BITS_PER_LONG == 32

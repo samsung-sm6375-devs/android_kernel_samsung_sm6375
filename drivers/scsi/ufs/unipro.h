@@ -64,6 +64,7 @@
 #define CFGRXOVR4				0x00E9
 #define RXSQCTRL				0x00B5
 #define CFGRXOVR6				0x00BF
+#define RX_HS_ADAPT_INITIAL_CAPABILITY		0x009F
 
 #define is_mphy_tx_attr(attr)			(attr < RX_MODE)
 #define RX_MIN_ACTIVATETIME_UNIT_US		100
@@ -156,6 +157,17 @@
 #define PA_TACTIVATE_TIME_UNIT_US	10
 #define PA_HIBERN8_TIME_UNIT_US		100
 
+#ifdef CONFIG_SCSI_UFSHCD_QTI
+#define PA_PEERRXHSADAPTINITIAL	0x15D3
+#define PA_TXHSADAPTTYPE	0x15D4
+#define PA_PEERRXHSADAPTINITIAL_Default	0x91
+
+/* Adpat type for PA_TXHSADAPTTYPE attribute */
+#define PA_REFRESH_ADAPT	0x00
+#define PA_INITIAL_ADAPT	0x01
+#define PA_NO_ADAPT		0x03
+#endif
+
 /*Other attributes*/
 #define VS_MPHYCFGUPDT		0xD085
 #define VS_DEBUGOMC		0xD09E
@@ -187,9 +199,6 @@ enum {
 	UNCHANGED	= 7,
 };
 
-#define PWRMODE_MASK		0xF
-#define PWRMODE_RX_OFFSET	4
-
 /* PA TX/RX Frequency Series */
 enum {
 	PA_HS_MODE_A	= 1,
@@ -219,10 +228,8 @@ enum ufs_unipro_ver {
 	UFS_UNIPRO_VER_RESERVED = 0,
 	UFS_UNIPRO_VER_1_40 = 1, /* UniPro version 1.40 */
 	UFS_UNIPRO_VER_1_41 = 2, /* UniPro version 1.41 */
-	UFS_UNIPRO_VER_1_6  = 3, /* UniPro version 1.6 */
-	UFS_UNIPRO_VER_1_61 = 4, /* UniPro version 1.61 */
-	UFS_UNIPRO_VER_1_8  = 5, /* UniPro version 1.8 */
-	UFS_UNIPRO_VER_MAX  = 6, /* UniPro unsupported version */
+	UFS_UNIPRO_VER_1_6 = 3,  /* UniPro version 1.6 */
+	UFS_UNIPRO_VER_MAX = 4,  /* UniPro unsupported version */
 	/* UniPro version field mask in PA_LOCALVERINFO */
 	UFS_UNIPRO_VER_MASK = 0xF,
 };

@@ -73,7 +73,7 @@ EXPORT_SYMBOL(fscrypt_free_bounce_page);
  * Generate the IV for the given logical block number within the given file.
  * For filenames encryption, lblk_num == 0.
  *
- * Keep this in sync with fscrypt_limit_io_blocks().  fscrypt_limit_io_blocks()
+ * Keep this in sync with fscrypt_limit_dio_pages().  fscrypt_limit_dio_pages()
  * needs to know about any IV generation methods where the low bits of IV don't
  * simply contain the lblk_num (e.g., IV_INO_LBLK_32).
  */
@@ -108,7 +108,7 @@ int fscrypt_crypt_block(const struct inode *inode, fscrypt_direction_t rw,
 	DECLARE_CRYPTO_WAIT(wait);
 	struct scatterlist dst, src;
 	struct fscrypt_info *ci = inode->i_crypt_info;
-	struct crypto_skcipher *tfm = ci->ci_enc_key.tfm;
+	struct crypto_skcipher *tfm = ci->ci_key.tfm;
 	int res = 0;
 
 	if (WARN_ON_ONCE(len <= 0))
@@ -351,11 +351,9 @@ void fscrypt_msg(const struct inode *inode, const char *level,
 	va_start(args, fmt);
 	vaf.fmt = fmt;
 	vaf.va = &args;
-	if (inode && inode->i_ino)
+	if (inode)
 		printk("%sfscrypt (%s, inode %lu): %pV\n",
 		       level, inode->i_sb->s_id, inode->i_ino, &vaf);
-	else if (inode)
-		printk("%sfscrypt (%s): %pV\n", level, inode->i_sb->s_id, &vaf);
 	else
 		printk("%sfscrypt: %pV\n", level, &vaf);
 	va_end(args);

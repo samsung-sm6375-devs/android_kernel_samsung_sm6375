@@ -7,6 +7,7 @@
 #ifndef __ASM_ARM_SMP_H
 #define __ASM_ARM_SMP_H
 
+#include <asm/percpu.h>
 #include <linux/threads.h>
 #include <linux/cpumask.h>
 #include <linux/thread_info.h>
@@ -39,10 +40,11 @@ void handle_IPI(int ipinr, struct pt_regs *regs);
  */
 extern void smp_init_cpus(void);
 
+
 /*
- * Register IPI interrupts with the arch SMP code
+ * Provide a function to raise an IPI cross call on CPUs in callmap.
  */
-extern void set_smp_ipi_range(int ipi_base, int nr_ipi);
+extern void set_smp_cross_call(void (*)(const struct cpumask *, unsigned int));
 
 /*
  * Called from platform specific assembly code, this is the

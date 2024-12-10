@@ -57,7 +57,7 @@ void on_each_cpu_cond_mask(bool (*cond_func)(int cpu, void *info),
 		smp_call_func_t func, void *info, bool wait,
 		gfp_t gfp_flags, const struct cpumask *mask);
 
-int smp_call_function_single_async(int cpu, struct __call_single_data *csd);
+int smp_call_function_single_async(int cpu, call_single_data_t *csd);
 
 #ifdef CONFIG_SMP
 
@@ -136,6 +136,27 @@ static inline int get_boot_cpu_id(void)
 	return __boot_cpu_id;
 }
 
+#ifdef CONFIG_QGKI_LPM_IPI_CHECK
+DECLARE_PER_CPU(bool, pending_ipi);
+
+static inline bool is_IPI_pending(const struct cpumask *mask)
+{
+	unsigned int cpu;
+
+	for_each_cpu(cpu, mask) {
+		if (per_cpu(pending_ipi, cpu))
+			return true;
+	}
+
+	return false;
+}
+#else
+static inline bool is_IPI_pending(const struct cpumask *mask)
+{
+	return false;
+}
+#endif /* CONFIG_QGKI_LPM_IPI_CHECK */
+
 #else /* !SMP */
 
 static inline void smp_send_stop(void) { }
@@ -176,6 +197,11 @@ static inline void smp_init(void) { }
 static inline int get_boot_cpu_id(void)
 {
 	return 0;
+}
+
+static inline bool is_IPI_pending(const struct cpumask *mask)
+{
+	return false;
 }
 
 #endif /* !SMP */

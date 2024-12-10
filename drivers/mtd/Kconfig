@@ -170,16 +170,6 @@ config MTD_OOPS
 	  buffer in a flash partition where it can be read back at some
 	  later point.
 
-config MTD_PSTORE
-	tristate "Log panic/oops to an MTD buffer based on pstore"
-	depends on PSTORE_BLK
-	help
-	  This enables panic and oops messages to be logged to a circular
-	  buffer in a flash partition where it can be read back as files after
-	  mounting pstore filesystem.
-
-	  If unsure, say N.
-
 config MTD_SWAP
 	tristate "Swap on MTD device support"
 	depends on MTD && SWAP
@@ -202,6 +192,17 @@ config MTD_PARTITIONED_MASTER
 	  leaves the master in even if the device is partitioned. It also makes
 	  the parent of the partition device be the master device, rather than
 	  what lies behind the master.
+
+config MTD_LAZYECCSTATS
+	bool "MTD Lazy ECC Stats collection support"
+	default y
+	help
+	  Normally bad block counts for ECC stats are collected at boot time.
+	  This option delays the badblock stats collection until ECCGETSTATS
+	  ioctl is invoked on the partition.
+
+	  This can significantly decrease boot times depending on the size of
+	  the partition.  If unsure, say 'N'.
 
 source "drivers/mtd/chips/Kconfig"
 

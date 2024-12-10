@@ -12,8 +12,6 @@
 #include <linux/usb/hcd.h>
 #include "usb.h"
 
-#include <trace/hooks/usb.h>
-
 struct quirk_entry {
 	u16 vid;
 	u16 pid;
@@ -378,6 +376,9 @@ static const struct usb_device_id usb_quirk_list[] = {
 	{ USB_DEVICE(0x0904, 0x6103), .driver_info =
 			USB_QUIRK_LINEAR_FRAME_INTR_BINTERVAL },
 
+	/* Silicon Motion Flash drive */
+	{ USB_DEVICE(0x090c, 0x1000), .driver_info = USB_QUIRK_NO_LPM },
+
 	/* Sound Devices USBPre2 */
 	{ USB_DEVICE(0x0926, 0x0202), .driver_info =
 			USB_QUIRK_ENDPOINT_BLACKLIST },
@@ -714,8 +715,6 @@ void usb_detect_quirks(struct usb_device *udev)
 	if (udev->descriptor.bDeviceClass == USB_CLASS_HUB)
 		udev->persist_enabled = 1;
 #endif	/* CONFIG_USB_DEFAULT_PERSIST */
-
-	trace_android_vh_usb_persist_overwrite(udev);
 }
 
 void usb_detect_interface_quirks(struct usb_device *udev)

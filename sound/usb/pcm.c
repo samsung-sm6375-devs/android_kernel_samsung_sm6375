@@ -666,6 +666,8 @@ static int set_format(struct snd_usb_substream *subs, struct audioformat *fmt)
 	return 0;
 }
 
+static int snd_usb_pcm_change_state(struct snd_usb_substream *subs, int state);
+
 int snd_usb_enable_audio_stream(struct snd_usb_substream *subs,
 	int datainterval, bool enable)
 {
@@ -687,6 +689,11 @@ int snd_usb_enable_audio_stream(struct snd_usb_substream *subs,
 	}
 
 	snd_usb_autoresume(subs->stream->chip);
+
+	ret = snd_usb_pcm_change_state(subs, UAC3_PD_STATE_D0);
+	if (ret < 0)
+		return ret;
+
 	if (datainterval != -EINVAL)
 		fmt = find_format_and_si(subs, datainterval);
 	else
@@ -1592,12 +1599,6 @@ static void retire_capture_urb(struct snd_usb_substream *subs,
 			// continue;
 		}
 		bytes = urb->iso_frame_desc[i].actual_length;
-		if (subs->stream_offset_adj > 0) {
-			unsigned int adj = min(subs->stream_offset_adj, bytes);
-			cp += adj;
-			bytes -= adj;
-			subs->stream_offset_adj -= adj;
-		}
 		frames = bytes / stride;
 		if (!subs->txfr_quirk)
 			bytes = frames * stride;

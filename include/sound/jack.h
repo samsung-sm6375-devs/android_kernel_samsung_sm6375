@@ -9,7 +9,6 @@
  */
 
 #include <sound/core.h>
-#include <linux/android_kabi.h>
 
 struct input_dev;
 
@@ -44,6 +43,11 @@ enum snd_jack_types {
 	SND_JACK_VIDEOOUT	= 0x0010,
 	SND_JACK_AVOUT		= SND_JACK_LINEOUT | SND_JACK_VIDEOOUT,
 	SND_JACK_LINEIN		= 0x0020,
+#ifdef CONFIG_AUDIO_QGKI
+	SND_JACK_OC_HPHL        = 0x0040,
+	SND_JACK_OC_HPHR        = 0x0080,
+	SND_JACK_UNSUPPORTED    = 0x0100,
+#endif
 
 	/* Kept separate from switches to facilitate implementation */
 	SND_JACK_BTN_0		= 0x4000,
@@ -70,8 +74,6 @@ struct snd_jack {
 #endif /* CONFIG_SND_JACK_INPUT_DEV */
 	void *private_data;
 	void (*private_free)(struct snd_jack *);
-
-	ANDROID_KABI_RESERVE(1);
 };
 
 #ifdef CONFIG_SND_JACK
