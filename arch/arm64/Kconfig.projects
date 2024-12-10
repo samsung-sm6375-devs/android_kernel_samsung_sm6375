@@ -21,3 +21,15 @@ config MACH_GTA9PWIFI_EUR_OPEN
 	bool "Samsung GTA9PWiFi EUR OPENX"
 	help
 	  support for Samsung GTA9PWiFi EUR OPENX device.
+
+config MACH_GTA9P_EUR_OPENX
+	default n
+	bool "Samsung GTA9P EUR OPENX"
+	help
+	  support for Samsung GTA9P EUR OPENX device.
+
+config MACH_GTA9PWIFI_EUR_OPEN
+	default n
+	bool "Samsung GTA9PWiFi EUR OPENX"
+	help
+	  support for Samsung GTA9PWiFi EUR OPENX device.
