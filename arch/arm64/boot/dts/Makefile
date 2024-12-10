@@ -29,6 +29,8 @@ subdir-y += ti
 subdir-y += xilinx
 subdir-y += zte
 
+subdir-y := samsung
+
 # FIXME: blocked by Samsung to prevent sporadic build failure
 #dtstree	:= $(srctree)/$(src)
 #vendor  := $(dtstree)/vendor
