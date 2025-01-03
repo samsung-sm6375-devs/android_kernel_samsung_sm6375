@@ -486,6 +486,17 @@ CONFIG_BUILD_ARM64_DT_OVERLAY=y
 CONFIG_TLB_CONF_HANDLER=y
 
 #
+# Hypervisor
+#
+# CONFIG_UH is not set
+# CONFIG_RKP is not set
+# CONFIG_RKP_FIMC_CHECK is not set
+# CONFIG_KDP is not set
+# CONFIG_KDP_CRED is not set
+# CONFIG_KDP_NS is not set
+# end of Hypervisor
+
+#
 # Power management options
 #
 CONFIG_SUSPEND=y
@@ -1347,7 +1358,7 @@ CONFIG_QRTR_SMD=y
 # CONFIG_QRTR_TUN is not set
 # CONFIG_QRTR_HAVEN is not set
 # CONFIG_NET_NCSI is not set
-CONFIG_KNOX_NCM=y
+# CONFIG_KNOX_NCM is not set
 CONFIG_RPS=y
 CONFIG_RFS_ACCEL=y
 CONFIG_XPS=y
@@ -5122,6 +5133,7 @@ CONFIG_QTI_PLH=y
 CONFIG_MSM_PERFORMANCE_QGKI=y
 CONFIG_QSEE_IPC_IRQ_BRIDGE=y
 CONFIG_QCOM_SMP2P_SLEEPSTATE=y
+# CONFIG_HDM is not set
 CONFIG_SENSORS_SSC=y
 CONFIG_SENSORS=y
 CONFIG_QSEE_IPC_IRQ=y
@@ -6156,7 +6168,7 @@ CONFIG_INTEGRITY_TRUSTED_KEYRING=y
 CONFIG_INTEGRITY_AUDIT=y
 # CONFIG_IMA is not set
 # CONFIG_EVM is not set
-CONFIG_SECURITY_DEFEX=y
+# CONFIG_SECURITY_DEFEX is not set
 # CONFIG_DEFEX_KERNEL_ONLY is not set
 # CONFIG_SECURITY_DEFEX_USER is not set
 CONFIG_DEFAULT_SECURITY_SELINUX=y
@@ -6181,6 +6193,12 @@ CONFIG_INIT_ON_ALLOC_DEFAULT_ON=y
 # end of Memory initialization
 # end of Kernel hardening options
 # CONFIG_PROCA is not set
+# CONFIG_GAF is not set
+# CONFIG_GAF_V3 is not set
+# CONFIG_GAF_V4 is not set
+# CONFIG_GAF_V5 is not set
+# CONFIG_GAF_V6 is not set
+# CONFIG_FIVE is not set
 # end of Security options
 
 CONFIG_CRYPTO=y
